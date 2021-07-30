@@ -25,17 +25,39 @@ namespace Heic2Whatever
             public FileInfo Info { get; set; }
         }
 
+        class FormatSelection
+        {
+            public string Text { get; set; }
+            public MagickFormat Value { get; set; }
+        }
+
         public FormFormMain()
         {
             InitializeComponent();
 
             this.FormClosing += FormFormMain_FormClosing;
 
-            comboBoxOutputFormat.Items.Add("PNG");
-            comboBoxOutputFormat.Items.Add("JPG");
-            comboBoxOutputFormat.Items.Add("BMP");
+            comboBoxOutputFormat.ValueMember = "Value";
+            comboBoxOutputFormat.DisplayMember = "Text";
+
+            comboBoxOutputFormat.Items.Add(new FormatSelection { Text = "PNG", Value = MagickFormat.Png });
+            comboBoxOutputFormat.Items.Add(new FormatSelection { Text = "JPG", Value = MagickFormat.Jpg });
+            comboBoxOutputFormat.Items.Add(new FormatSelection { Text = "BMP", Value = MagickFormat.Bmp3 });
 
             comboBoxOutputFormat.Text = "JPG";
+
+            _operateParam = OperatingParams.LoadFromRegistry();
+
+            textBoxOutputPath.Text = _operateParam.OutputPath;
+
+            foreach (FormatSelection item in comboBoxOutputFormat.Items)
+            {
+                if (item.Value == _operateParam.Format)
+                {
+                    comboBoxOutputFormat.SelectedItem = item;
+                    break;
+                }
+            }
         }
 
         private void FormFormMain_FormClosing(object sender, FormClosingEventArgs e)
@@ -81,7 +103,7 @@ namespace Heic2Whatever
                 {
                     SafeSetText(item.RowIndex, "Processing.");
 
-                    string outputFile = $"{Path.Combine(textBoxOutputPath.Text, Path.GetFileNameWithoutExtension(item.Info.Name))}.{_operateParam.Extension}";
+                    string outputFile = $"{Path.Combine(_operateParam.OutputPath, Path.GetFileNameWithoutExtension(item.Info.Name))}.{_operateParam.Extension}";
 
                     if (File.Exists(outputFile) && _operateParam.OverwriteExistingFiles == false)
                     {
@@ -91,9 +113,19 @@ namespace Heic2Whatever
                     {
                         using (MagickImage image = new MagickImage(item.Info.FullName))
                         {
-                            if (image.Width > 4000 || image.Height > 4000)
+                            if (_operateParam.ResizeIfLargerThan)
                             {
-                                image.Resize(new Percentage(50));
+                                if (image.Width > _operateParam.ResizeIfLargerThanWidth || image.Height > _operateParam.ResizeIfLargerThanHeight)
+                                {
+                                    if (_operateParam.ResizeToExactSize)
+                                    {
+                                        image.Resize(_operateParam.ResizeToExactSizeWidth, _operateParam.ResizeToExactSizeHeight);
+                                    }
+                                    else if (_operateParam.ResizeByPercentage)
+                                    {
+                                        image.Resize(new Percentage(_operateParam.ResizeByPercentageValue));
+                                    }
+                                }
                             }
 
                             image.Write(outputFile, _operateParam.Format);
@@ -127,35 +159,11 @@ namespace Heic2Whatever
         {
             _cancel = false;
             _running = true;
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < _operateParam.CPUThreadCount; i++)
             {
                 _activeThreadCount++;
                 (new Thread(WorkerThreadProc)).Start();
-                Thread.Sleep(100);
             }
-        }
-
-        private void button1_Click(object sender, EventArgs e)
-        {
-            /*
-            // Write to stream
-            MagickReadSettings settings = new MagickReadSettings();
-            // Tells the xc: reader the image to create should be 800x600
-            settings.Width = 800;
-            settings.Height = 600;
-
-            using (MemoryStream memStream = new MemoryStream())
-            {
-                // Create image that is completely purple and 800x600
-                using (MagickImage image = new MagickImage("xc:purple", settings))
-                {
-                    // Sets the output format to png
-                    image.Format = MagickFormat.Png;
-                    // Write the image to the memorystream
-                    image.Write(memStream);
-                }
-            }
-            */
         }
 
         private void buttonAddFiles_Click(object sender, EventArgs e)
@@ -293,33 +301,36 @@ namespace Heic2Whatever
                     _queue = new ConcurrentQueue<QueueItem>();
 
                     _operateParam.OverwriteExistingFiles = checkBoxOverwriteExistingFiles.Checked;
+                    _operateParam.OutputPath = textBoxOutputPath.Text;
+
+                    if (comboBoxOutputFormat.Text == "PNG")
+                    {
+                        _operateParam.Format = MagickFormat.Png;
+                        _operateParam.Extension = "png";
+                    }
+                    else if (comboBoxOutputFormat.Text == "JPG")
+                    {
+                        _operateParam.Format = MagickFormat.Jpg;
+                        _operateParam.Extension = "jpg";
+                    }
+                    else if (comboBoxOutputFormat.Text == "BMP")
+                    {
+                        _operateParam.Format = MagickFormat.Bmp3;
+                        _operateParam.Extension = "bmp";
+                    }
+                    else
+                    {
+                        _operateParam.Format = MagickFormat.Png;
+                        _operateParam.Extension = "png";
+                    }
+
+                    OperatingParams.SaveToRegistry(_operateParam);
 
                     foreach (ListViewItem item in listViewFiles.Items)
                     {
                         item.SubItems[StatusColumnIndex].Text = "Queued.";
 
                         var info = item.Tag as FileInfo;
-
-                        if (comboBoxOutputFormat.Text == "PNG")
-                        {
-                            _operateParam.Format = MagickFormat.Png;
-                            _operateParam.Extension = "png";
-                        }
-                        else if (comboBoxOutputFormat.Text == "JPG")
-                        {
-                            _operateParam.Format = MagickFormat.Jpg;
-                            _operateParam.Extension = "jpg";
-                        }
-                        else if (comboBoxOutputFormat.Text == "BMP")
-                        {
-                            _operateParam.Format = MagickFormat.Bmp3;
-                            _operateParam.Extension = "bmp";
-                        }
-                        else
-                        {
-                            _operateParam.Format = MagickFormat.Png;
-                            _operateParam.Extension = "png";
-                        }
 
                         _queue.Enqueue(new QueueItem()
                         {
@@ -354,6 +365,27 @@ namespace Heic2Whatever
             {
                 MessageBox.Show($"Exception: {ex.Message}");
             }
+        }
+
+        private void closeToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            this.Close();
+        }
+
+        private void optionsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            using (var dialog = new FormOptions(_operateParam))
+            {
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    _operateParam = dialog.OperateParam;
+                }
+            }
+        }
+
+        private void aboutToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+
         }
     }
 }
