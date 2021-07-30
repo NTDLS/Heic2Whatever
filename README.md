@@ -3,7 +3,7 @@ Simply put, IOS loves HEIC images and the world of Windows dees not. Heic2Whatev
 
 Options for auto-resizing, file types and even thread count.
 
-Definitly runs on Windows but suposedly also runs on Linux, and MacOS. Let me know. ¯\_(ツ)_/¯
+Definitly runs on Windows but suposedly also runs on Linux, and MacOS. Let me know. ¯\\_(ツ)_/¯
 
 Enjoy!
 
